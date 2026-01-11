@@ -4,6 +4,7 @@
 
 import { successWithJson, errorFromCatch } from '../../../utils/response.js';
 import { createCategory } from '../../../actual-api.js';
+import { APICategoryEntity } from '@actual-app/api/@types/loot-core/src/server/api-models.js';
 
 export const schema = {
   name: 'create-category',
@@ -32,7 +33,11 @@ export async function handler(
       return errorFromCatch('name is required and must be a string');
     }
 
-    const data: Record<string, unknown> = {
+    if (!args.groupId || typeof args.groupId !== 'string') {
+      return errorFromCatch('groupId is required and must be a string');
+    }
+
+    const data: Omit<APICategoryEntity, 'id'> = {
       name: args.name,
       group_id: args.groupId,
     };

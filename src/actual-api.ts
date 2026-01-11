@@ -98,7 +98,8 @@ export async function getAccounts(): Promise<APIAccountEntity[]> {
  */
 export async function getCategories(): Promise<APICategoryEntity[]> {
   await initActualApi();
-  return api.getCategories();
+  const categories = await api.getCategories();
+  return categories.filter((item): item is APICategoryEntity => 'group_id' in item);
 }
 
 /**
@@ -140,7 +141,7 @@ export async function getRules(): Promise<RuleEntity[]> {
 /**
  * Create a new payee (ensures API is initialized)
  */
-export async function createPayee(args: Record<string, unknown>): Promise<string> {
+export async function createPayee(args: Omit<APIPayeeEntity, 'id'>): Promise<string> {
   await initActualApi();
   return api.createPayee(args);
 }
@@ -148,7 +149,7 @@ export async function createPayee(args: Record<string, unknown>): Promise<string
 /**
  * Update a payee (ensures API is initialized)
  */
-export async function updatePayee(id: string, args: Record<string, unknown>): Promise<unknown> {
+export async function updatePayee(id: string, args: Partial<Omit<APIPayeeEntity, 'id'>>): Promise<unknown> {
   await initActualApi();
   return api.updatePayee(id, args);
 }
@@ -164,7 +165,7 @@ export async function deletePayee(id: string): Promise<unknown> {
 /**
  * Create a new rule (ensures API is initialized)
  */
-export async function createRule(args: Record<string, unknown>): Promise<RuleEntity> {
+export async function createRule(args: Omit<RuleEntity, 'id'>): Promise<RuleEntity> {
   await initActualApi();
   return api.createRule(args);
 }
@@ -172,7 +173,7 @@ export async function createRule(args: Record<string, unknown>): Promise<RuleEnt
 /**
  * Update a rule (ensures API is initialized)
  */
-export async function updateRule(args: Record<string, unknown>): Promise<RuleEntity> {
+export async function updateRule(args: RuleEntity): Promise<RuleEntity> {
   await initActualApi();
   return api.updateRule(args);
 }
@@ -188,7 +189,7 @@ export async function deleteRule(id: string): Promise<boolean> {
 /**
  * Create a new category (ensures API is initialized)
  */
-export async function createCategory(args: Record<string, unknown>): Promise<string> {
+export async function createCategory(args: Omit<APICategoryEntity, 'id'>): Promise<string> {
   await initActualApi();
   return api.createCategory(args);
 }
@@ -196,7 +197,7 @@ export async function createCategory(args: Record<string, unknown>): Promise<str
 /**
  * Update a category (ensures API is initialized)
  */
-export async function updateCategory(id: string, args: Record<string, unknown>): Promise<unknown> {
+export async function updateCategory(id: string, args: Partial<Omit<APICategoryEntity, 'id'>>): Promise<unknown> {
   await initActualApi();
   return api.updateCategory(id, args);
 }
@@ -212,7 +213,7 @@ export async function deleteCategory(id: string): Promise<{ error?: string }> {
 /**
  * Create a new category group (ensures API is initialized)
  */
-export async function createCategoryGroup(args: Record<string, unknown>): Promise<string> {
+export async function createCategoryGroup(args: Omit<APICategoryGroupEntity, 'id'>): Promise<string> {
   await initActualApi();
   return api.createCategoryGroup(args);
 }
@@ -220,7 +221,10 @@ export async function createCategoryGroup(args: Record<string, unknown>): Promis
 /**
  * Update a category group (ensures API is initialized)
  */
-export async function updateCategoryGroup(id: string, args: Record<string, unknown>): Promise<unknown> {
+export async function updateCategoryGroup(
+  id: string,
+  args: Partial<Omit<APICategoryGroupEntity, 'id'>>
+): Promise<unknown> {
   await initActualApi();
   return api.updateCategoryGroup(id, args);
 }
@@ -246,7 +250,16 @@ export async function createTransaction(accountId: string, data: TransactionData
  */
 export async function updateTransaction(id: string, data: UpdateTransactionData): Promise<unknown> {
   await initActualApi();
-  return api.updateTransaction(id, data);
+  const normalizedSubtransactions = data.subtransactions?.map((subtransaction) => ({
+    ...subtransaction,
+  })) as TransactionEntity[] | undefined;
+
+  const payload: Partial<TransactionEntity> = {
+    ...data,
+    subtransactions: normalizedSubtransactions,
+  };
+
+  return api.updateTransaction(id, payload);
 }
 
 /**

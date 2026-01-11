@@ -4,6 +4,7 @@
 
 import { successWithJson, errorFromCatch } from '../../../utils/response.js';
 import { createPayee } from '../../../actual-api.js';
+import { APIPayeeEntity } from '@actual-app/api/@types/loot-core/src/server/api-models.js';
 
 export const schema = {
   name: 'create-payee',
@@ -32,9 +33,16 @@ export async function handler(
       return errorFromCatch('name is required and must be a string');
     }
 
-    const data: Record<string, unknown> = { name: args.name };
-    if (args.transferAccount) {
-      data.transfer_acct = args.transferAccount;
+    if (args.transferAccount && typeof args.transferAccount !== 'string') {
+      return errorFromCatch('transferAccount must be a string if provided');
+    }
+
+    const name: string = args.name as string;
+    const transferAccount: string | undefined = args.transferAccount as string | undefined;
+
+    const data: Omit<APIPayeeEntity, 'id'> = { name };
+    if (transferAccount) {
+      data.transfer_acct = transferAccount;
     }
 
     const id: string = await createPayee(data);

@@ -4,7 +4,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm ci
 
 COPY . ./
 RUN npm run build
@@ -23,8 +23,6 @@ RUN TMPDIR=$(mktemp -d)
 ENV TMPDIR=$TMPDIR
 
 RUN npm ci --omit=dev
-
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 EXPOSE 3000
 ENTRYPOINT ["node", "build/index.js"]

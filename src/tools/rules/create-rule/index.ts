@@ -17,7 +17,24 @@ export async function handler(
   args: Record<string, unknown>
 ): Promise<ReturnType<typeof successWithJson> | ReturnType<typeof errorFromCatch>> {
   try {
-    const { id }: RuleEntity = await createRule(args);
+    const { stage, conditionsOp, conditions, actions } = args;
+
+    if ((stage !== 'pre' && stage !== 'post' && stage !== null && stage !== undefined) || typeof conditionsOp !== 'string') {
+      return errorFromCatch('stage must be pre|post|null and conditionsOp is required');
+    }
+
+    if (!Array.isArray(conditions) || !Array.isArray(actions)) {
+      return errorFromCatch('conditions and actions are required arrays');
+    }
+
+    const payload: Omit<RuleEntity, 'id'> = {
+      stage: (stage ?? null) as RuleEntity['stage'],
+      conditionsOp: conditionsOp as RuleEntity['conditionsOp'],
+      conditions: conditions as RuleEntity['conditions'],
+      actions: actions as RuleEntity['actions'],
+    };
+
+    const { id }: RuleEntity = await createRule(payload);
 
     return successWithJson('Successfully created rule ' + id);
   } catch (err) {
