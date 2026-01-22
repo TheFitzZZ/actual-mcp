@@ -23,6 +23,7 @@ import { fetchAllAccounts } from './core/data/fetch-accounts.js';
 import { setupPrompts } from './prompts.js';
 import { setupResources } from './resources.js';
 import { setupTools } from './tools/index.js';
+import { createDebugLogger, isDebugLoggingEnabled, toErrorMessage } from './utils/debug-logging.js';
 import { SetLevelRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 dotenv.config({ path: '.env' });
@@ -111,19 +112,69 @@ const bearerAuth = (req: Request, res: Response, next: NextFunction): void => {
   next();
 };
 
-/**
- * Safely stringify values for logging without throwing on circular structures.
- */
-const safeStringify = (value: unknown): string => {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return '[unserializable]';
+const debugEnabled = isDebugLoggingEnabled(process.env.MCP_DEBUG_LOGGING);
+const logDebug = createDebugLogger(debugEnabled, (message) => console.error(message));
+
+const getHeaderValue = (value: string | string[] | undefined): string | undefined => {
+  if (!value) {
+    return undefined;
   }
+
+  return Array.isArray(value) ? value[0] : value;
 };
 
-const toErrorMessage = (value: unknown): string =>
-  value instanceof Error ? `${value.name}: ${value.message}` : safeStringify(value);
+const getRemoteAddress = (req: Request): string => req.ip ?? req.socket.remoteAddress ?? 'unknown';
+
+const buildConnectionContext = (req: Request): Record<string, unknown> => ({
+  remoteAddress: getRemoteAddress(req),
+  forwardedFor: getHeaderValue(req.headers['x-forwarded-for']),
+  forwardedProto: getHeaderValue(req.headers['x-forwarded-proto']),
+  userAgent: getHeaderValue(req.headers['user-agent']),
+  accept: req.headers.accept,
+});
+
+const attachRequestDebugHandlers = (label: string, req: Request, res: Response): void => {
+  if (!debugEnabled) {
+    return;
+  }
+
+  const startedAt = Date.now();
+  logDebug(`${label} opened`, buildConnectionContext(req));
+
+  req.on('aborted', () =>
+    logDebug(`${label} aborted`, {
+      elapsedMs: Date.now() - startedAt,
+    })
+  );
+  req.on('close', () =>
+    logDebug(`${label} request closed`, {
+      elapsedMs: Date.now() - startedAt,
+    })
+  );
+  req.socket.once('timeout', () =>
+    logDebug(`${label} socket timeout`, {
+      elapsedMs: Date.now() - startedAt,
+    })
+  );
+  res.on('close', () =>
+    logDebug(`${label} response closed`, {
+      elapsedMs: Date.now() - startedAt,
+      statusCode: res.statusCode,
+    })
+  );
+  res.on('finish', () =>
+    logDebug(`${label} response finished`, {
+      elapsedMs: Date.now() - startedAt,
+      statusCode: res.statusCode,
+    })
+  );
+  res.on('error', (error) =>
+    logDebug(`${label} response error`, {
+      elapsedMs: Date.now() - startedAt,
+      error: toErrorMessage(error),
+    })
+  );
+};
 
 // ----------------------------
 // SERVER STARTUP
@@ -175,6 +226,13 @@ async function main(): Promise<void> {
     console.error('If your server requires authentication, initialization will fail.');
   }
 
+  logDebug('Server configuration', {
+    transport: useSse ? 'sse' : 'stdio',
+    enableWrite,
+    enableBearer,
+    port: resolvedPort,
+  });
+
   if (useSse) {
     const app = express();
     app.use(express.json());
@@ -204,14 +262,32 @@ async function main(): Promise<void> {
     });
 
     const handleLegacySse = (req: Request, res: Response): void => {
-      transport = new SSEServerTransport('/messages', res);
-      server.connect(transport).then(() => {
-        console.log = (message: string) => server.sendLoggingMessage({ level: 'info', message });
-
-        console.error = (message: string) => server.sendLoggingMessage({ level: 'error', message });
-
-        console.error(`Actual Budget MCP Server (SSE) started on port ${resolvedPort}`);
+      attachRequestDebugHandlers('SSE /sse', req, res);
+      logDebug('Initializing SSE transport', {
+        ...buildConnectionContext(req),
       });
+
+      req.socket.setTimeout(0);
+      req.socket.setKeepAlive(true, 30000);
+      res.setTimeout(0);
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+
+      transport = new SSEServerTransport('/messages', res);
+      server
+        .connect(transport)
+        .then(() => {
+          console.log = (message: string) => server.sendLoggingMessage({ level: 'info', message });
+
+          console.error = (message: string) => server.sendLoggingMessage({ level: 'error', message });
+
+          console.error(`Actual Budget MCP Server (SSE) started on port ${resolvedPort}`);
+          logDebug('SSE transport connected', { remoteAddress: getRemoteAddress(req) });
+        })
+        .catch((error) => {
+          console.error(`Failed to connect SSE transport: ${toErrorMessage(error)}`);
+        });
     };
 
     app.get('/sse', bearerAuth, handleLegacySse);
@@ -220,11 +296,19 @@ async function main(): Promise<void> {
 
     app.all(streamablePaths, bearerAuth, async (req: Request, res: Response) => {
       const sessionHeader = parseSessionHeader(req.headers['mcp-session-id']);
+      const requestLabel = `${req.method} ${req.path}`;
+      attachRequestDebugHandlers(`Streamable HTTP ${requestLabel}`, req, res);
+      logDebug('Streamable HTTP request received', {
+        requestLabel,
+        sessionHeader,
+        hasBody: Boolean(req.body),
+        acceptsSse: req.headers.accept?.includes('text/event-stream'),
+        ...buildConnectionContext(req),
+      });
       if (req.method === 'GET' && !sessionHeader && req.headers.accept?.includes('text/event-stream')) {
         handleLegacySse(req, res);
         return;
       }
-      const requestLabel = `${req.method} ${req.path}`;
       try {
         let streamableTransport = sessionHeader ? streamableHttpTransports.get(sessionHeader) : undefined;
 
@@ -236,10 +320,15 @@ async function main(): Promise<void> {
               onsessioninitialized: (sessionId) => {
                 streamableHttpTransports.set(sessionId, streamableTransport!);
                 console.info(`Streamable HTTP session initialized (session ${sessionId}) from ${remoteAddress}`);
+                logDebug('Streamable HTTP session initialized', {
+                  sessionId,
+                  remoteAddress,
+                });
               },
               onsessionclosed: (sessionId) => {
                 streamableHttpTransports.delete(sessionId);
                 console.info(`Streamable HTTP session closed (session ${sessionId})`);
+                logDebug('Streamable HTTP session closed', { sessionId });
               },
             });
 
@@ -248,6 +337,7 @@ async function main(): Promise<void> {
               if (activeSessionId) {
                 streamableHttpTransports.delete(activeSessionId);
                 console.info(`Streamable HTTP transport closed (session ${activeSessionId})`);
+                logDebug('Streamable HTTP transport closed', { sessionId: activeSessionId });
               }
             };
 
@@ -314,8 +404,21 @@ async function main(): Promise<void> {
     });
 
     app.post('/messages', bearerAuth, async (req: Request, res: Response) => {
+      attachRequestDebugHandlers('SSE /messages', req, res);
+      logDebug('SSE message received', {
+        hasTransport: Boolean(transport),
+        hasBody: Boolean(req.body),
+        ...buildConnectionContext(req),
+      });
       if (transport) {
-        await transport.handlePostMessage(req, res, req.body);
+        try {
+          await transport.handlePostMessage(req, res, req.body);
+        } catch (error) {
+          console.error(`SSE message handler error: ${toErrorMessage(error)}`);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Internal server error' });
+          }
+        }
       } else {
         res.status(500).json({ error: 'Transport not initialized' });
       }

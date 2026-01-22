@@ -114,6 +114,9 @@ export ACTUAL_PASSWORD="your-password"
 
 # Specific budget to use (optional)
 export ACTUAL_BUDGET_SYNC_ID="your-budget-id"
+
+# Enable verbose transport debug logging (optional)
+export MCP_DEBUG_LOGGING="1"
 ```
 
 Optional: separate encryption budget password
@@ -231,6 +234,9 @@ docker run -i --rm \
 
 > ⚠️ Important: When using --enable-bearer, the BEARER_TOKEN environment variable must be set.  
 > 🔒 This is highly recommended if you're exposing your server via a public URL.
+
+> 💡 For unstable SSE connections (proxy timeouts or buffering), enable debug logs with
+> `MCP_DEBUG_LOGGING=1` and verify your reverse proxy disables buffering and uses long idle timeouts.
 
 ## Example Queries
 
