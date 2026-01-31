@@ -115,6 +115,24 @@ const bearerAuth = (req: Request, res: Response, next: NextFunction): void => {
 const debugEnabled = isDebugLoggingEnabled(process.env.MCP_DEBUG_LOGGING);
 const logDebug = createDebugLogger(debugEnabled, (message) => console.error(message));
 
+const safeSendLoggingMessage = (level: 'info' | 'error', message: string): void => {
+  try {
+    server.sendLoggingMessage({ level, message });
+  } catch {
+    // # Reason: avoid crashing when logging occurs before transport connection is ready.
+    if (level === 'error') {
+      process.stderr.write(`${message}\n`);
+    } else {
+      process.stdout.write(`${message}\n`);
+    }
+  }
+};
+
+const attachSafeConsoleLogging = (): void => {
+  console.log = (message: string) => safeSendLoggingMessage('info', message);
+  console.error = (message: string) => safeSendLoggingMessage('error', message);
+};
+
 const getHeaderValue = (value: string | string[] | undefined): string | undefined => {
   if (!value) {
     return undefined;
@@ -278,9 +296,7 @@ async function main(): Promise<void> {
       server
         .connect(transport)
         .then(() => {
-          console.log = (message: string) => server.sendLoggingMessage({ level: 'info', message });
-
-          console.error = (message: string) => server.sendLoggingMessage({ level: 'error', message });
+          attachSafeConsoleLogging();
 
           console.error(`Actual Budget MCP Server (SSE) started on port ${resolvedPort}`);
           logDebug('SSE transport connected', { remoteAddress: getRemoteAddress(req) });
@@ -344,9 +360,7 @@ async function main(): Promise<void> {
             try {
               await server.connect(streamableTransport);
 
-              console.log = (message: string) => server.sendLoggingMessage({ level: 'info', message });
-
-              console.error = (message: string) => server.sendLoggingMessage({ level: 'error', message });
+              attachSafeConsoleLogging();
 
               console.error(`Actual Budget MCP Server (Streamable HTTP) started on port ${resolvedPort}`);
             } catch (error) {
@@ -457,16 +471,7 @@ main()
   .then(() => {
     if (!useSse) {
       // TODO: Setup proper logging level change. Messages are available in the notification of MCP Inspector
-      console.log = (message: string) =>
-        server.sendLoggingMessage({
-          level: 'info',
-          message,
-        });
-      console.error = (message: string) =>
-        server.sendLoggingMessage({
-          level: 'error',
-          message,
-        });
+      attachSafeConsoleLogging();
     }
   })
   .catch((error: unknown) => {
