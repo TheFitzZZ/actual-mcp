@@ -9,3 +9,5 @@ data/**
 .gemini/
 
 **/*.local.*
+scripts/seed-temp-transactions.ts
+.env.test

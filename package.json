@@ -24,6 +24,7 @@
     "test:unit:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
+    "seed:temp": "tsx scripts/seed-temp-transactions.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

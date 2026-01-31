@@ -276,6 +276,33 @@ To verify the server can connect to your Actual Budget data:
 node build/index.js --test-resources
 ```
 
+### MCP integration testing (Temp account)
+
+1. Fill out [/.env.test](.env.test) with your Actual server credentials and MCP endpoint details.
+2. Start the MCP server with write access (SSE/Streamable HTTP):
+
+```bash
+node build/index.js --sse --enable-write
+```
+
+If you prefer Docker, use:
+
+```bash
+bash scripts/run-mcp-docker.sh
+```
+
+3. Seed the Temp account with the transactions from the provided test image:
+
+```bash
+npm run seed:temp
+```
+
+4. Run integration tests (will only run when MCP_BASE_URL is set):
+
+```bash
+npm run test
+```
+
 ### Debugging
 
 Since MCP servers communicate over stdio, debugging can be challenging. You can use the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):

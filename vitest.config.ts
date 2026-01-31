@@ -7,6 +7,12 @@ export default defineConfig({
     environment: 'node',
     include: ['src/core/**/*.test.ts', 'src/tools/**/*.test.ts'],
     globals: true,
+    fileParallelism: false,
+    poolOptions: {
+      threads: {
+        singleThread: true,
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'json-summary', 'html'],
