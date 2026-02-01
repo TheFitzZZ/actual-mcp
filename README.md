@@ -115,6 +115,15 @@ export ACTUAL_PASSWORD="your-password"
 # Specific budget to use (optional)
 export ACTUAL_BUDGET_SYNC_ID="your-budget-id"
 
+# Refresh interval (ms) to re-download the budget (default: 5000, set 0 to disable)
+export ACTUAL_REFRESH_INTERVAL_MS="5000"
+
+# Default transaction date range in months (default: 3)
+export ACTUAL_DEFAULT_DATE_RANGE_MONTHS="3"
+
+# Or override the default start date for transactions (YYYY-MM-DD)
+export ACTUAL_DEFAULT_START_DATE="2020-01-01"
+
 # Enable verbose transport debug logging (optional)
 export MCP_DEBUG_LOGGING="1"
 ```

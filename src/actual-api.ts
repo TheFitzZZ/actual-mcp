@@ -17,6 +17,10 @@ const DEFAULT_DATA_DIR: string = path.resolve(os.homedir() || '.', '.actual');
 let initialized = false;
 let initializationPromise: Promise<void> | null = null;
 let initializationError: Error | null = null;
+let loadedBudgetId: string | null = null;
+let lastRefreshAt: number | null = null;
+
+const DEFAULT_REFRESH_INTERVAL_MS = 5000;
 
 let apiOperationQueue: Promise<void> = Promise.resolve();
 
@@ -26,6 +30,39 @@ const runWithApiLock = async <T>(operation: () => Promise<T>): Promise<T> => {
   const resultPromise = apiOperationQueue.then(run, run);
   apiOperationQueue = resultPromise.then(() => undefined, () => undefined);
   return resultPromise;
+};
+
+const getBudgetDownloadOptions = (): { password: string } | undefined => {
+  const password = process.env.ACTUAL_BUDGET_ENCRYPTION_PASSWORD;
+  if (!password) return undefined;
+  return { password };
+};
+
+const getRefreshIntervalMs = (): number => {
+  const raw = process.env.ACTUAL_REFRESH_INTERVAL_MS;
+  if (!raw) return DEFAULT_REFRESH_INTERVAL_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_REFRESH_INTERVAL_MS;
+  }
+  return parsed;
+};
+
+/**
+ * Refresh the loaded budget if the refresh interval has elapsed.
+ *
+ * @param force - When true, bypasses interval checks and refreshes immediately.
+ */
+const refreshActualBudgetIfNeeded = async (force: boolean): Promise<void> => {
+  if (!loadedBudgetId) return;
+  const refreshIntervalMs = getRefreshIntervalMs();
+  if (!force && refreshIntervalMs === 0) return;
+
+  const now = Date.now();
+  if (!force && lastRefreshAt && refreshIntervalMs > 0 && now - lastRefreshAt < refreshIntervalMs) return;
+
+  await api.downloadBudget(loadedBudgetId, getBudgetDownloadOptions());
+  lastRefreshAt = now;
 };
 
 /**
@@ -61,14 +98,10 @@ export async function initActualApi(): Promise<void> {
       // Use specified budget or the first one
       const budgetId: string = process.env.ACTUAL_BUDGET_SYNC_ID || budgets[0].cloudFileId || budgets[0].id || '';
       console.error(`Loading budget: ${budgetId}`);
-      await api.downloadBudget(
-        budgetId,
-        process.env.ACTUAL_BUDGET_ENCRYPTION_PASSWORD
-          ? {
-              password: process.env.ACTUAL_BUDGET_ENCRYPTION_PASSWORD,
-            }
-          : undefined
-      );
+      await api.downloadBudget(budgetId, getBudgetDownloadOptions());
+
+      loadedBudgetId = budgetId;
+      lastRefreshAt = Date.now();
 
       initialized = true;
       console.error('Actual Budget API initialized successfully');
@@ -76,6 +109,8 @@ export async function initActualApi(): Promise<void> {
       console.error('Failed to initialize Actual Budget API:', error);
       initializationError = error instanceof Error ? error : new Error(String(error));
       initialized = false;
+      loadedBudgetId = null;
+      lastRefreshAt = null;
       throw initializationError;
     } finally {
       initializationPromise = null;
@@ -96,6 +131,20 @@ export async function shutdownActualApi(): Promise<void> {
     if (!initialized) return;
     await api.shutdown();
     initialized = false;
+    loadedBudgetId = null;
+    lastRefreshAt = null;
+  });
+}
+
+/**
+ * Refresh the loaded budget from the sync server.
+ *
+ * @param force - When true, bypasses interval checks and refreshes immediately.
+ */
+export async function refreshActualBudget(force = false): Promise<void> {
+  await runWithApiLock(async () => {
+    await initActualApi();
+    await refreshActualBudgetIfNeeded(force);
   });
 }
 
@@ -109,6 +158,7 @@ export async function shutdownActualApi(): Promise<void> {
 export async function getAccounts(): Promise<APIAccountEntity[]> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     return api.getAccounts();
   });
 }
@@ -119,6 +169,7 @@ export async function getAccounts(): Promise<APIAccountEntity[]> {
 export async function getAccountBalance(accountId: string): Promise<number> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     return api.getAccountBalance(accountId);
   });
 }
@@ -129,6 +180,7 @@ export async function getAccountBalance(accountId: string): Promise<number> {
 export async function getCategories(): Promise<APICategoryEntity[]> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     const categories = await api.getCategories();
     return categories.filter((item): item is APICategoryEntity => 'group_id' in item);
   });
@@ -140,6 +192,7 @@ export async function getCategories(): Promise<APICategoryEntity[]> {
 export async function getCategoryGroups(): Promise<APICategoryGroupEntity[]> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     return api.getCategoryGroups();
   });
 }
@@ -150,6 +203,7 @@ export async function getCategoryGroups(): Promise<APICategoryGroupEntity[]> {
 export async function getPayees(): Promise<APIPayeeEntity[]> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     return api.getPayees();
   });
 }
@@ -160,6 +214,7 @@ export async function getPayees(): Promise<APIPayeeEntity[]> {
 export async function getTransactions(accountId: string, start: string, end: string): Promise<TransactionEntity[]> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     return api.getTransactions(accountId, start, end);
   });
 }
@@ -170,6 +225,7 @@ export async function getTransactions(accountId: string, start: string, end: str
 export async function getRules(): Promise<RuleEntity[]> {
   return runWithApiLock(async () => {
     await initActualApi();
+    await refreshActualBudgetIfNeeded(false);
     return api.getRules();
   });
 }

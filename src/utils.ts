@@ -3,11 +3,15 @@
  */
 export function getDateRange(startDate?: string, endDate?: string): { startDate: string; endDate: string } {
   const today = new Date();
+  const defaultStartDateOverride = process.env.ACTUAL_DEFAULT_START_DATE;
+  const defaultMonthsRaw = process.env.ACTUAL_DEFAULT_DATE_RANGE_MONTHS;
+  const defaultMonths = defaultMonthsRaw ? Number(defaultMonthsRaw) : 3;
+  const monthsToUse = Number.isFinite(defaultMonths) && defaultMonths > 0 ? defaultMonths : 3;
   const defaultStartDate = new Date();
-  defaultStartDate.setMonth(today.getMonth() - 3); // 3 months ago by default
+  defaultStartDate.setMonth(today.getMonth() - monthsToUse); // default months ago
 
   return {
-    startDate: startDate || formatDate(defaultStartDate),
+    startDate: startDate || defaultStartDateOverride || formatDate(defaultStartDate),
     endDate: endDate || formatDate(today),
   };
 }
