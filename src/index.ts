@@ -116,15 +116,22 @@ const debugEnabled = isDebugLoggingEnabled(process.env.MCP_DEBUG_LOGGING);
 const logDebug = createDebugLogger(debugEnabled, (message) => console.error(message));
 
 const safeSendLoggingMessage = (level: 'info' | 'error', message: string): void => {
-  try {
-    server.sendLoggingMessage({ level, message });
-  } catch {
+  const fallback = () => {
     // # Reason: avoid crashing when logging occurs before transport connection is ready.
     if (level === 'error') {
       process.stderr.write(`${message}\n`);
     } else {
       process.stdout.write(`${message}\n`);
     }
+  };
+
+  try {
+    const result = server.sendLoggingMessage({ level, message });
+    if (result && typeof (result as Promise<void>).catch === 'function') {
+      (result as Promise<void>).catch(() => fallback());
+    }
+  } catch {
+    fallback();
   }
 };
 
